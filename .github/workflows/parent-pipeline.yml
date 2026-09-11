@@ -1,9 +1,6 @@
 name: .NET Library pipeline
 
 on:
-  push:
-   branches:
-     - main
   workflow_call:
     inputs:
       dotnet-version:
