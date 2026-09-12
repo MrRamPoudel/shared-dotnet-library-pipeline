@@ -1,18 +1,43 @@
-name: .NET Library pipeline
+name: .NET Library Pipeline
+
+# ============================================================================
+# Reusable workflow
+#
+# This workflow is called by individual library repositories.
+#
+# Responsibilities:
+#   1. Run tests
+#   2. Determine the next package version from Git tags
+#   3. Build the library
+#   4. Pack the NuGet package
+#   5. Create a Git tag for the release
+#   6. Publish the package to GitHub Packages
+#
+# Versioning:
+#   v1.2.3
+#     │ │ │
+#     │ │ └── patch
+#     │ └──── minor
+#     └────── major
+#
+# The latest Git tag is used as the current version.
+# The package version is NOT written back to the .csproj file.
+# ============================================================================
 
 on:
   workflow_call:
+
     inputs:
+
+      # ----------------------------------------------------------------------
+      # .NET configuration
+      # ----------------------------------------------------------------------
+
       dotnet-version:
         description: .NET SDK version
         required: false
         type: string
         default: '8.0.x'
-
-      package-repository:
-        description: GitHub repository to associate the package with
-        required: true
-        type: string
 
       configuration:
         description: Build configuration
@@ -20,30 +45,118 @@ on:
         type: string
         default: Release
 
+      # ----------------------------------------------------------------------
+      # Package configuration
+      # ----------------------------------------------------------------------
+
+      package-repository:
+        description: GitHub repository associated with the NuGet package (owner/repository)
+        required: true
+        type: string
+
+      # ----------------------------------------------------------------------
+      # Version configuration
+      # ----------------------------------------------------------------------
+
+      version-increment:
+        description: Version component to increment (major, minor, or patch)
+        required: false
+        type: string
+        default: patch
+
+      initial-version:
+        description: Version to use when the repository has no previous release tag
+        required: false
+        type: string
+        default: '0.1.0'
+
+
+# ============================================================================
+# Permissions
+# ============================================================================
+#
+# contents: write
+#   Required to create release commits and Git tags.
+#
+# packages: write
+#   Required to publish the NuGet package to GitHub Packages.
+#
+# The calling workflow must grant these permissions as well.
+# ============================================================================
+
 permissions:
-  contents: read
+  contents: write
   packages: write
 
+
+# ============================================================================
+# Prevent two releases of the same repository from running simultaneously.
+#
+# This is important because version calculation depends on the latest tag.
+#
+# Example:
+#
+#   Run A calculates 1.4.8
+#   Run B must wait until Run A has finished before calculating its version.
+# ============================================================================
+
+concurrency:
+  group: library-release-${{ github.repository }}
+  cancel-in-progress: false
+
+
 jobs:
+
+  # ==========================================================================
+  # TEST
+  # ==========================================================================
+  #
+  # This job must succeed before anything is released.
+  # ==========================================================================
+
   test:
     name: Test
     runs-on: ubuntu-latest
 
     steps:
+
+      # ----------------------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------------------
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------------
+      # Setup .NET
+      # ----------------------------------------------------------------------
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
 
+      # ----------------------------------------------------------------------
+      # Restore dependencies
+      # ----------------------------------------------------------------------
+
       - name: Restore dependencies
         run: dotnet restore
+
+      # ----------------------------------------------------------------------
+      # Run tests
+      # ----------------------------------------------------------------------
 
       - name: Test
         run: dotnet test --configuration ${{ inputs.configuration }} --no-restore
 
+
+  # ==========================================================================
+  # BUILD & RELEASE
+  # ==========================================================================
+  #
+  # This job only runs when all tests have passed.
+  # ==========================================================================
 
   build-and-release:
     name: Build & Release
@@ -51,8 +164,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      # ----------------------------------------------------------------------
+      # Checkout
+      #
+      # fetch-depth: 0 is important because we need the complete Git history
+      # and all tags to determine the current package version.
+      # ----------------------------------------------------------------------
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ----------------------------------------------------------------------
+      # Setup .NET
+      # ----------------------------------------------------------------------
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -62,22 +189,216 @@ jobs:
         env:
           NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ----------------------------------------------------------------------
+      # Validate version increment
+      # ----------------------------------------------------------------------
+
+      - name: Validate version increment
+        shell: bash
+        run: |
+          case "${{ inputs.version-increment }}" in
+            major|minor|patch)
+              echo "Version increment: ${{ inputs.version-increment }}"
+              ;;
+            *)
+              echo "ERROR: version-increment must be major, minor, or patch"
+              exit 1
+              ;;
+          esac
+
+      # ----------------------------------------------------------------------
+      # Determine current version
+      #
+      # We use the latest Git tag as the current version.
+      #
+      # Example:
+      #
+      #   Latest tag: v1.4.7
+      #   Current version: 1.4.7
+      # ----------------------------------------------------------------------
+
+      - name: Determine current version
+        id: current-version
+        shell: bash
+        run: |
+          LATEST_TAG=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            CURRENT_VERSION="${{ inputs.initial-version }}"
+            echo "No previous release tag found."
+            echo "Using initial version: $CURRENT_VERSION"
+          else
+            CURRENT_VERSION="${LATEST_TAG#v}"
+            echo "Latest release tag: $LATEST_TAG"
+            echo "Current version: $CURRENT_VERSION"
+          fi
+
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------------------
+      # Calculate next version
+      #
+      # Examples:
+      #
+      #   patch:
+      #     1.4.7 -> 1.4.8
+      #
+      #   minor:
+      #     1.4.7 -> 1.5.0
+      #
+      #   major:
+      #     1.4.7 -> 2.0.0
+      # ----------------------------------------------------------------------
+
+      - name: Calculate next version
+        id: next-version
+        shell: bash
+        run: |
+          CURRENT_VERSION="${{ steps.current-version.outputs.version }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+
+          case "${{ inputs.version-increment }}" in
+
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+
+          esac
+
+          NEXT_VERSION="$MAJOR.$MINOR.$PATCH"
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "Version increment: ${{ inputs.version-increment }}"
+          echo "Next version:    $NEXT_VERSION"
+
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------------------
+      # Build
+      #
+      # The version is supplied to MSBuild rather than modifying the .csproj.
+      # ----------------------------------------------------------------------
+
       - name: Build
         run: |
           dotnet build \
-            --configuration ${{ inputs.configuration }} \
-            --no-restore
+            --configuration "${{ inputs.configuration }}" \
+            --no-restore \
+            -p:Version="${{ steps.next-version.outputs.version }}"
+
+      # ----------------------------------------------------------------------
+      # Pack
+      #
+      # PackageVersion controls the version of the generated NuGet package.
+      #
+      # RepositoryUrl associates the package with the library's GitHub
+      # repository.
+      # ----------------------------------------------------------------------
 
       - name: Pack
         run: |
           dotnet pack \
-            --configuration ${{ inputs.configuration }} \
+            --configuration "${{ inputs.configuration }}" \
             --no-build \
             --output ./output \
-            -p:RepositoryUrl=https://github.com/${{ inputs.package-repository }}
+            -p:PackageVersion="${{ steps.next-version.outputs.version }}" \
+            -p:RepositoryUrl="https://github.com/${{ inputs.package-repository }}"
+
+      # ----------------------------------------------------------------------
+      # Display package information
+      # ----------------------------------------------------------------------
+
+      - name: Show generated packages
+        shell: bash
+        run: |
+          echo "Packages generated:"
+          ls -lh ./output
+
+      # ----------------------------------------------------------------------
+      # Configure Git
+      #
+      # The GitHub Actions bot will create the release commit.
+      # ----------------------------------------------------------------------
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # ----------------------------------------------------------------------
+      # Create release commit
+      #
+      # We don't change the .csproj, so this commit is simply a marker that
+      # the release was created.
+      #
+      # [skip ci] prevents the commit from triggering another pipeline run.
+      # ----------------------------------------------------------------------
+
+      - name: Create release commit
+        run: |
+          VERSION="${{ steps.next-version.outputs.version }}"
+
+          git commit \
+            --allow-empty \
+            -m "Prepare release v$VERSION [skip ci]"
+
+      # ----------------------------------------------------------------------
+      # Push release commit
+      # ----------------------------------------------------------------------
+
+      - name: Push release commit
+        run: |
+          git push origin HEAD:main
+
+      # ----------------------------------------------------------------------
+      # Create Git tag
+      #
+      # The tag becomes the source of truth for the released version.
+      #
+      # Example:
+      #
+      #   v1.4.8
+      # ----------------------------------------------------------------------
+
+      - name: Create release tag
+        run: |
+          VERSION="${{ steps.next-version.outputs.version }}"
+
+          git tag "v$VERSION"
+
+      # ----------------------------------------------------------------------
+      # Push Git tag
+      # ----------------------------------------------------------------------
+
+      - name: Push release tag
+        run: |
+          VERSION="${{ steps.next-version.outputs.version }}"
+
+          git push origin "v$VERSION"
+
+      # ----------------------------------------------------------------------
+      # Publish NuGet package
+      #
+      # GitHub Packages uses the organization/user-level NuGet endpoint.
+      # RepositoryUrl above associates the package with the actual project.
+      # ----------------------------------------------------------------------
 
       - name: Publish to GitHub Packages
         run: |
           dotnet nuget push "./output/*.nupkg" \
             --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
             --skip-duplicate
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
