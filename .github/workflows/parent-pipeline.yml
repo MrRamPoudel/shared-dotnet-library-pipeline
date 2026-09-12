@@ -45,14 +45,6 @@ on:
         type: string
         default: Release
 
-      # ----------------------------------------------------------------------
-      # Package configuration
-      # ----------------------------------------------------------------------
-
-      package-repository:
-        description: GitHub repository associated with the NuGet package (owner/repository)
-        required: true
-        type: string
 
       # ----------------------------------------------------------------------
       # Version configuration
@@ -313,8 +305,7 @@ jobs:
             --configuration "${{ inputs.configuration }}" \
             --no-build \
             --output ./output \
-            -p:PackageVersion="${{ steps.next-version.outputs.version }}" \
-            -p:RepositoryUrl="https://github.com/${{ inputs.package-repository }}"
+            -p:PackageVersion="${{ steps.next-version.outputs.version }}"
 
       # ----------------------------------------------------------------------
       # Display package information
