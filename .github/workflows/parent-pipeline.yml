@@ -133,7 +133,7 @@ jobs:
       # ----------------------------------------------------------------------
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore ./*.csproj
 
       # ----------------------------------------------------------------------
       # Run tests
@@ -285,7 +285,7 @@ jobs:
 
       - name: Build
         run: |
-          dotnet build \
+          dotnet build ./*.csproj \
             --configuration "${{ inputs.configuration }}" \
             --no-restore \
             -p:Version="${{ steps.next-version.outputs.version }}"
@@ -301,7 +301,7 @@ jobs:
 
       - name: Pack
         run: |
-          dotnet pack \
+          dotnet pack ./*.csproj \
             --configuration "${{ inputs.configuration }}" \
             --no-build \
             --output ./output \
