@@ -124,23 +124,32 @@ jobs:
       # ----------------------------------------------------------------------
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/workflows/composite/setup-dotnet.yml@v2
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
 
+      # ----------------------------------------------------------------------
+      # Validate Project
+      # ----------------------------------------------------------------------
+
+      - name: Validate Project
+        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/workflows/composite/validate-project.yml@v2
+      
       # ----------------------------------------------------------------------
       # Restore dependencies
       # ----------------------------------------------------------------------
 
       - name: Restore dependencies
-        run: dotnet restore ./*.csproj
+        run: dotnet restore "${{ steps.project.outputs.project }}"
 
       # ----------------------------------------------------------------------
       # Run tests
       # ----------------------------------------------------------------------
 
       - name: Test
-        run: dotnet test --configuration ${{ inputs.configuration }} --no-restore
+        run: dotnet test "${{ steps.project.outputs.project }}" \
+          --configuration ${{ inputs.configuration }} \
+          --no-restore
 
 
   # ==========================================================================
@@ -174,13 +183,17 @@ jobs:
       # ----------------------------------------------------------------------
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/workflows/composite/setup-dotnet.yml@v2
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
-          source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ----------------------------------------------------------------------
+      # Validate Project
+      # ----------------------------------------------------------------------
+
+      - name: Validate Project
+        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/workflows/composite/validate-project.yml@v2
+      
       # ----------------------------------------------------------------------
       # Validate version increment
       # ----------------------------------------------------------------------
@@ -282,7 +295,7 @@ jobs:
       # ----------------------------------------------------------------------
 
       - name: Restore dependencies
-        run: dotnet restore ./*.csproj
+        run: dotnet restore "${{ steps.project.outputs.project }}"
 
       # ----------------------------------------------------------------------
       # Build
@@ -292,7 +305,7 @@ jobs:
 
       - name: Build
         run: |
-          dotnet build ./*.csproj \
+          dotnet build "${{ steps.project.outputs.project }}" \
             --configuration "${{ inputs.configuration }}" \
             --no-restore \
             -p:Version="${{ steps.next-version.outputs.version }}"
@@ -308,7 +321,7 @@ jobs:
 
       - name: Pack
         run: |
-          dotnet pack ./*.csproj \
+          dotnet pack "${{ steps.project.outputs.project }}" \
             --configuration "${{ inputs.configuration }}" \
             --no-build \
             --output ./output \
