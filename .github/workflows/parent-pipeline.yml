@@ -278,6 +278,13 @@ jobs:
           echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
 
       # ----------------------------------------------------------------------
+      # Restore dependencies
+      # ----------------------------------------------------------------------
+
+      - name: Restore dependencies
+        run: dotnet restore ./*.csproj
+
+      # ----------------------------------------------------------------------
       # Build
       #
       # The version is supplied to MSBuild rather than modifying the .csproj.
