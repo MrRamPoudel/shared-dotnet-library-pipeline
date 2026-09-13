@@ -148,7 +148,7 @@ jobs:
       # ----------------------------------------------------------------------
 
       - name: Test
-        run: dotnet test "${{ steps.project.outputs.project }}" \
+        run: dotnet test \
           --configuration ${{ inputs.configuration }} \
           --no-restore
 
@@ -307,7 +307,7 @@ jobs:
 
       - name: Build
         run: |
-          dotnet build "${{ steps.project.outputs.project }}" \
+          dotnet build \
             --configuration "${{ inputs.configuration }}" \
             --no-restore \
             -p:Version="${{ steps.next-version.outputs.version }}"
@@ -323,7 +323,7 @@ jobs:
 
       - name: Pack
         run: |
-          dotnet pack "${{ steps.project.outputs.project }}" \
+          dotnet pack \
             --configuration "${{ inputs.configuration }}" \
             --no-build \
             --output ./output \
