@@ -1,0 +1,19 @@
+name: Setup .NET
+description: Install and configure the .NET SDK
+
+inputs:
+  dotnet-version:
+    description: .NET SDK version
+    required: true
+
+runs:
+  using: composite
+
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+        source-url: https://nuget.pkg.github.com/my-org/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{ github.token }}
