@@ -1,0 +1,35 @@
+name: Discover .NET Library Modules
+description: Find package projects under src, excluding each module's tests directory
+
+outputs:
+  projects:
+    description: Newline-separated paths to package projects
+    value: ${{ steps.find-projects.outputs.projects }}
+
+runs:
+  using: composite
+
+  steps:
+    - name: Find library modules
+      id: find-projects
+      shell: bash
+      run: |
+        mapfile -t PROJECTS < <(
+          find ./src -type f -name '*.csproj' \
+            -not -path '*/tests/*' \
+            -print | sort
+        )
+
+        if [ "${#PROJECTS[@]}" -eq 0 ]; then
+          echo "ERROR: No package projects found under src/."
+          exit 1
+        fi
+
+        printf 'Found package projects:\n'
+        printf '  %s\n' "${PROJECTS[@]}"
+
+        {
+          echo "projects<<EOF"
+          printf '%s\n' "${PROJECTS[@]}"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"

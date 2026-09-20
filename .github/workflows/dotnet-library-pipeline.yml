@@ -129,26 +129,51 @@ jobs:
           dotnet-version: ${{ inputs.dotnet-version }}
 
       # ----------------------------------------------------------------------
-      # Validate Project
+      # Discover package projects
       # ----------------------------------------------------------------------
 
-      - name: Validate Project
-        id: project
-        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/actions/validate-project@v1
+      - name: Discover package projects
+        id: modules
+        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/actions/discover-modules@v1
       
       # ----------------------------------------------------------------------
       # Restore dependencies
       # ----------------------------------------------------------------------
 
-      - name: Restore dependencies
-        run: dotnet restore "${{ steps.project.outputs.project }}"
+      - name: Restore package projects
+        shell: bash
+        run: |
+          readarray -t PROJECTS <<< "${{ steps.modules.outputs.projects }}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet restore "$PROJECT"
+          done
 
       # ----------------------------------------------------------------------
       # Run tests
       # ----------------------------------------------------------------------
 
-      - name: Test
-        run: dotnet test --configuration ${{ inputs.configuration }} --no-restore
+      - name: Test module projects
+        shell: bash
+        run: |
+          readarray -t PROJECTS <<< "${{ steps.modules.outputs.projects }}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            MODULE_DIRECTORY="$(dirname "$PROJECT")"
+            TEST_DIRECTORY="$MODULE_DIRECTORY/tests"
+
+            if [ ! -d "$TEST_DIRECTORY" ]; then
+              echo "No tests directory for $PROJECT; skipping."
+              continue
+            fi
+
+            while IFS= read -r TEST_PROJECT; do
+              dotnet restore "$TEST_PROJECT"
+              dotnet test "$TEST_PROJECT" \
+                --configuration "${{ inputs.configuration }}" \
+                --no-restore
+            done < <(find "$TEST_DIRECTORY" -type f -name '*.csproj' -print | sort)
+          done
 
 
   # ==========================================================================
@@ -187,12 +212,12 @@ jobs:
           dotnet-version: ${{ inputs.dotnet-version }}
 
       # ----------------------------------------------------------------------
-      # Validate Project
+      # Discover package projects
       # ----------------------------------------------------------------------
 
-      - name: Validate Project
-        id: project
-        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/actions/validate-project@v1
+      - name: Discover package projects
+        id: modules
+        uses: MrRamPoudel/shared-dotnet-library-pipeline/.github/actions/discover-modules@v1
       
       # ----------------------------------------------------------------------
       # Validate version increment
@@ -294,8 +319,14 @@ jobs:
       # Restore dependencies
       # ----------------------------------------------------------------------
 
-      - name: Restore dependencies
-        run: dotnet restore "${{ steps.project.outputs.project }}"
+      - name: Restore package projects
+        shell: bash
+        run: |
+          readarray -t PROJECTS <<< "${{ steps.modules.outputs.projects }}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet restore "$PROJECT"
+          done
 
       # ----------------------------------------------------------------------
       # Build
@@ -303,11 +334,17 @@ jobs:
       # The version is supplied to MSBuild rather than modifying the .csproj.
       # ----------------------------------------------------------------------
 
-      - name: Build
+      - name: Build package projects
+        shell: bash
         run: |
-          dotnet build --configuration "${{ inputs.configuration }}" \
-            --no-restore \
-            -p:Version="${{ steps.next-version.outputs.version }}"
+          readarray -t PROJECTS <<< "${{ steps.modules.outputs.projects }}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet build "$PROJECT" \
+              --configuration "${{ inputs.configuration }}" \
+              --no-restore \
+              -p:Version="${{ steps.next-version.outputs.version }}"
+          done
 
       # ----------------------------------------------------------------------
       # Pack
@@ -318,12 +355,18 @@ jobs:
       # repository.
       # ----------------------------------------------------------------------
 
-      - name: Pack
+      - name: Pack package projects
+        shell: bash
         run: |
-          dotnet pack --configuration "${{ inputs.configuration }}" \
-            --no-build \
-            --output ./output \
-            -p:PackageVersion="${{ steps.next-version.outputs.version }}"
+          readarray -t PROJECTS <<< "${{ steps.modules.outputs.projects }}"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet pack "$PROJECT" \
+              --configuration "${{ inputs.configuration }}" \
+              --no-build \
+              --output ./output \
+              -p:PackageVersion="${{ steps.next-version.outputs.version }}"
+          done
 
       # ----------------------------------------------------------------------
       # Display package information
